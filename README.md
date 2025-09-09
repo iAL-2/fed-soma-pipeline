@@ -1,18 +1,80 @@
 # Fed SOMA Pipeline
 
-This is a personal project to collect the Federal Reserve's **SOMA weekly summary** data and make it easier to analyze.
+End-to-end pipeline for working with the Federal Reserve’s **System Open Market Account (SOMA)** data.  
+This project downloads weekly SOMA summaries, validates them, stores them as CSV/Parquet, and builds an interactive Plotly dashboard.
+
+---
+
+## Features
+
+### Data Management
+- **Initial backfill:** `soma_initial_backfill.py`
+- **Weekly update:** `soma_update_and_parquet_annotated.py`
+- **Sanity checks:** `sanity_check.py`
+
+### Visualization
+- **Interactive dashboard:** `soma_dashboard_interactive.py`
+- Charts include:
+  - Net weekly change + rolling average  
+  - Cumulative change since anchor date  
+  - Composition by category (levels & shares)  
+  - Total holdings  
+- **Output:** `data/soma_dashboard.html` (open in your browser)
+
+---
+
+## Requirements
+
+- Python 3.10+
+- Packages: `pandas`, `plotly`
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
 
 ## Usage
 
-- Run `soma_update_and_parquet_annotated.py` to update the dataset (keeps a CSV and Parquet, and also saves a tidy long version).
-- Run `sanity_check.py` to check the data for problems.
-- Run `soma_dashboard.py` to make charts (weekly changes, cumulative change, composition).
+1. **Backfill history** (one-time):
+   ```bash
+   python soma_initial_backfill.py
+   ```
 
-Outputs are saved in the `data/` folder:
-- `soma_summary_weekly.csv` (wide format)
-- `soma_summary_long.csv` (tidy format)
-- Charts as PNGs
+2. **Update with latest weekly data**:
+   ```bash
+   python soma_update_and_parquet_annotated.py
+   ```
 
-## Why I built this
-Mostly to practice Python, data handling, and Git, while also learning something about Fed balance sheet movements.
-This was built with AI assistance so I am still learning about all the moving pieces.
+3. **Run checks** (optional):
+   ```bash
+   python sanity_check.py
+   ```
+
+4. **Build dashboard**:
+   ```bash
+   python soma_dashboard_interactive.py
+   ```
+
+   Open the generated file:
+   ```
+   data/soma_dashboard.html
+   ```
+
+---
+
+## Config
+
+Adjust these values inside `soma_dashboard_interactive.py`:
+
+- `ANCHOR_DATE` → baseline for cumulative change  
+- `ROLL_W` → rolling window for trend line  
+- `ZOOM_YEARS` → number of years shown on “recent” charts  
+
+---
+
+## License
+
+_No license chosen yet. All rights reserved by default._
