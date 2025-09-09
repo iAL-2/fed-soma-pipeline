@@ -15,3 +15,4 @@ Outputs are saved in the `data/` folder:
 
 ## Why I built this
 Mostly to practice Python, data handling, and Git, while also learning something about Fed balance sheet movements.
+This was built with AI assistance so I am still learning about all the moving pieces.
