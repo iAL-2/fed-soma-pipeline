@@ -31,7 +31,7 @@ OUT_HTML = DATA_DIR / "soma_dashboard.html"
 
 ANCHOR_DATE = pd.Timestamp("2017-06-01")  # change if you want a different baseline
 ROLL_W = 4                                # rolling window for trend line (weeks)
-ZOOM_YEARS = 6                            # “recent” window on the composition/total charts
+ZOOM_YEARS = 5                            # “recent” window on the composition/total charts
 # -----------------------------------------
 
 
