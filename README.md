@@ -1,18 +1,71 @@
 # Fed SOMA Pipeline
 
-This is a personal project to collect the Federal Reserve's **SOMA weekly summary** data and make it easier to analyze.
+End-to-end pipeline for working with the Federal Reserve’s **System Open Market Account (SOMA)** data.  
+This project downloads weekly SOMA summaries, validates them, stores them as CSV/Parquet, and builds an interactive Plotly dashboard.
 
-## Usage
+---
 
-- Run `soma_update_and_parquet_annotated.py` to update the dataset (keeps a CSV and Parquet, and also saves a tidy long version).
-- Run `sanity_check.py` to check the data for problems.
-- Run `soma_dashboard.py` to make charts (weekly changes, cumulative change, composition).
+## Features
+- **Data management**
+  - Initial backfill (`soma_initial_backfill.py`)
+  - Weekly update (`soma_update_and_parquet_annotated.py`)
+  - Sanity checks (`sanity_check.py`)
 
-Outputs are saved in the `data/` folder:
-- `soma_summary_weekly.csv` (wide format)
-- `soma_summary_long.csv` (tidy format)
-- Charts as PNGs
+- **Visualization**
+  - Interactive dashboard (`soma_dashboard_interactive.py`)
+  - Charts:
+    - Net weekly change + rolling average
+    - Cumulative change since anchor date
+    - Composition by category (levels & shares)
+    - Total holdings
+  - Output: `data/soma_dashboard.html` (open in your browser)
 
-## Why I built this
-Mostly to practice Python, data handling, and Git, while also learning something about Fed balance sheet movements.
-This was built with AI assistance so I am still learning about all the moving pieces.
+---
+
+## Requirements
+- Python 3.10+
+- Packages: `pandas`, `plotly`
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+
+Usage
+
+    Backfill history (one-time):
+
+python soma_initial_backfill.py
+
+Update with latest weekly data:
+
+python soma_update_and_parquet_annotated.py
+
+Run checks (optional):
+
+python sanity_check.py
+
+Build dashboard:
+
+python soma_dashboard_interactive.py
+
+Open the generated file:
+
+    data/soma_dashboard.html
+
+Config
+
+Adjust these values inside soma_dashboard_interactive.py:
+
+    ANCHOR_DATE → baseline for cumulative change
+
+    ROLL_W → rolling window for trend line
+
+    ZOOM_YEARS → number of years shown on “recent” charts
+
+License
+
+No license chosen yet. All rights reserved by default.
+
+
+Would you like me to also add a **requirements.txt** draft for your repo so it’s easy to install?
+
