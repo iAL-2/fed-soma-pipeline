@@ -1,0 +1,104 @@
+# soma_update_weekly_summary.py
+from __future__ import annotations
+from datetime import date, timedelta
+from pathlib import Path
+import io, csv, time
+import pandas as pd
+import requests
+
+OUT_DIR = Path("data")
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUT_CSV = OUT_DIR / "soma_summary_weekly.csv"
+
+# --- URL builder: keep exactly what works for you (summary, one as-of date) ---
+def url_builder(asof: date) -> str:
+    return (
+        "https://markets.newyorkfed.org/read"
+        f"?productCode=30&query=summary"
+        f"&startDt={asof.isoformat()}&endDt={asof.isoformat()}&format=csv"
+    )
+
+def fetch_csv_df(url: str, timeout=60, retries=3, backoff=1.5) -> pd.DataFrame:
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(url, timeout=timeout)
+            r.raise_for_status()
+            if not r.content:
+                raise ValueError("Empty response body")
+            return pd.read_csv(io.BytesIO(r.content))
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(backoff ** attempt)
+            else:
+                raise last_err
+
+def normalize_summary(df: pd.DataFrame, asof: date) -> pd.DataFrame:
+    rename = {c: c.strip().lower().replace(" ", "_") for c in df.columns}
+    df = df.rename(columns=rename)
+    df["as_of_date"] = asof.isoformat()
+    return df
+
+def append_csv(df: pd.DataFrame, path: Path):
+    header = not path.exists()
+    df.to_csv(path, mode="a", index=False, header=header, quoting=csv.QUOTE_MINIMAL)
+
+def dedupe_csv_inplace(path: Path, keys=("as_of_date",)):
+    df = pd.read_csv(path)
+    sub = [k for k in keys if k in df.columns]
+    if sub:
+        df = df.drop_duplicates(subset=sub)
+    df.to_csv(path, index=False)
+
+def next_wednesday(d: date) -> date:
+    """Return the next Wednesday strictly after d."""
+    d = d + timedelta(days=1)
+    while d.weekday() != 2:  # Mon=0 ... Wed=2
+        d += timedelta(days=1)
+    return d
+
+def weekly_wednesdays(start: date, end: date):
+    """Yield Wednesdays from start..end inclusive (start assumed to be a Wednesday)."""
+    d = start
+    while d <= end:
+        yield d
+        d += timedelta(days=7)
+
+def update_weekly_summaries():
+    if not OUT_CSV.exists():
+        raise FileNotFoundError(f"Missing {OUT_CSV}. Run your initial backfill first.")
+
+    # 1) Find last as_of_date in existing file
+    df_existing = pd.read_csv(OUT_CSV, usecols=["as_of_date"])
+    df_existing["as_of_date"] = pd.to_datetime(df_existing["as_of_date"]).dt.date
+    last = df_existing["as_of_date"].max()
+
+    # 2) Compute the next Wednesday after 'last' up to today
+    start = next_wednesday(last)
+    today = date.today()
+
+    # Find the first Wednesday on/after today (for inclusive bound)
+    # but we only fetch up to today
+    if start > today:
+        print("No new weeks to fetch.")
+        return
+
+    # 3) Iterate weekly and append
+    for asof in weekly_wednesdays(start, today):
+        u = url_builder(asof)
+        print(f"[fetch] {asof} -> {u}")
+        try:
+            df = fetch_csv_df(u)
+        except Exception as e:
+            print(f"[skip] {asof}: {e}")
+            continue
+        df = normalize_summary(df, asof)
+        append_csv(df, OUT_CSV)
+
+    # 4) Dedupe at the end (idempotent)
+    dedupe_csv_inplace(OUT_CSV, keys=("as_of_date",))
+    print(f"Update complete. File: {OUT_CSV.resolve()}")
+
+if __name__ == "__main__":
+    update_weekly_summaries()
