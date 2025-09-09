@@ -1,16 +1,37 @@
-# soma_update_weekly_summary.py
+# soma_update_and_parquet.py
+"""
+This script:
+1. Reads your existing SOMA summary CSV (backfilled once already).
+2. Figures out the last available week (Wednesday).
+3. Downloads only the missing weeks (one Wednesday per week) up to today.
+4. Appends them to the CSV and deduplicates.
+5. Refreshes a Parquet version (fast, compact format for analysis).
+
+Usage:
+    python soma_update_and_parquet.py
+"""
+
 from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 import io, csv, time
-import pandas as pd
 import requests
+import pandas as pd
 
+# ──────────────────────────────────────────────────────────────────────────────
+# File locations
+# ──────────────────────────────────────────────────────────────────────────────
 OUT_DIR = Path("data")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-OUT_CSV = OUT_DIR / "soma_summary_weekly.csv"
 
-# --- URL builder: keep exactly what works for you (summary, one as-of date) ---
+CSV_PATH = OUT_DIR / "soma_summary_weekly.csv"       # main log of all data
+PARQUET_PATH = OUT_DIR / "soma_summary_weekly.parquet"  # fast analysis copy
+
+# ──────────────────────────────────────────────────────────────────────────────
+# URL builder
+# Edit this if your confirmed endpoint is slightly different.
+# The key is: one "as_of" date per request, format=csv.
+# ──────────────────────────────────────────────────────────────────────────────
 def url_builder(asof: date) -> str:
     return (
         "https://markets.newyorkfed.org/read"
@@ -18,7 +39,15 @@ def url_builder(asof: date) -> str:
         f"&startDt={asof.isoformat()}&endDt={asof.isoformat()}&format=csv"
     )
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers: fetching, normalizing, appending
+# ──────────────────────────────────────────────────────────────────────────────
 def fetch_csv_df(url: str, timeout=60, retries=3, backoff=1.5) -> pd.DataFrame:
+    """
+    GET request with retries. Returns a DataFrame.
+    - Retries on failure (e.g. network hiccups).
+    - Raises error if CSV is empty.
+    """
     last_err = None
     for attempt in range(1, retries + 1):
         try:
@@ -26,65 +55,89 @@ def fetch_csv_df(url: str, timeout=60, retries=3, backoff=1.5) -> pd.DataFrame:
             r.raise_for_status()
             if not r.content:
                 raise ValueError("Empty response body")
-            return pd.read_csv(io.BytesIO(r.content))
+            df = pd.read_csv(io.BytesIO(r.content))
+            if df.empty:
+                raise ValueError("Empty CSV (no rows)")
+            return df
         except Exception as e:
             last_err = e
             if attempt < retries:
-                time.sleep(backoff ** attempt)
+                time.sleep(backoff ** attempt)  # exponential backoff
             else:
                 raise last_err
 
 def normalize_summary(df: pd.DataFrame, asof: date) -> pd.DataFrame:
+    """
+    Light cleanup:
+    - Rename columns to lower_snake_case.
+    - Add an explicit 'as_of_date' column.
+    """
     rename = {c: c.strip().lower().replace(" ", "_") for c in df.columns}
     df = df.rename(columns=rename)
     df["as_of_date"] = asof.isoformat()
     return df
 
 def append_csv(df: pd.DataFrame, path: Path):
+    """Append a DataFrame to a CSV, creating it if missing."""
     header = not path.exists()
     df.to_csv(path, mode="a", index=False, header=header, quoting=csv.QUOTE_MINIMAL)
 
 def dedupe_csv_inplace(path: Path, keys=("as_of_date",)):
+    """
+    Reload the CSV, drop duplicates by key(s), and overwrite.
+    Ensures file stays clean after multiple runs.
+    """
     df = pd.read_csv(path)
-    sub = [k for k in keys if k in df.columns]
-    if sub:
-        df = df.drop_duplicates(subset=sub)
+    cols = [k for k in keys if k in df.columns]
+    if cols:
+        df = df.drop_duplicates(subset=cols)
     df.to_csv(path, index=False)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Date helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def last_asof_or_none(path: Path):
+    """Return the latest as_of_date from existing CSV, or None if empty/missing."""
+    if not path.exists():
+        return None
+    df = pd.read_csv(path, usecols=["as_of_date"])
+    if df.empty:
+        return None
+    df["as_of_date"] = pd.to_datetime(df["as_of_date"]).dt.date
+    return df["as_of_date"].max()
+
 def next_wednesday(d: date) -> date:
-    """Return the next Wednesday strictly after d."""
+    """Get the next Wednesday strictly after date d."""
     d = d + timedelta(days=1)
     while d.weekday() != 2:  # Mon=0 ... Wed=2
         d += timedelta(days=1)
     return d
 
 def weekly_wednesdays(start: date, end: date):
-    """Yield Wednesdays from start..end inclusive (start assumed to be a Wednesday)."""
+    """Yield Wednesdays from start..end inclusive."""
     d = start
     while d <= end:
         yield d
         d += timedelta(days=7)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Main update routine
+# ──────────────────────────────────────────────────────────────────────────────
 def update_weekly_summaries():
-    if not OUT_CSV.exists():
-        raise FileNotFoundError(f"Missing {OUT_CSV}. Run your initial backfill first.")
+    if not CSV_PATH.exists():
+        raise FileNotFoundError(f"Missing {CSV_PATH}. Run your initial backfill first.")
+    last = last_asof_or_none(CSV_PATH)
+    if last is None:
+        raise RuntimeError("CSV exists but contains no as_of_date values.")
 
-    # 1) Find last as_of_date in existing file
-    df_existing = pd.read_csv(OUT_CSV, usecols=["as_of_date"])
-    df_existing["as_of_date"] = pd.to_datetime(df_existing["as_of_date"]).dt.date
-    last = df_existing["as_of_date"].max()
-
-    # 2) Compute the next Wednesday after 'last' up to today
+    # Next missing week after last recorded
     start = next_wednesday(last)
     today = date.today()
 
-    # Find the first Wednesday on/after today (for inclusive bound)
-    # but we only fetch up to today
     if start > today:
         print("No new weeks to fetch.")
         return
 
-    # 3) Iterate weekly and append
     for asof in weekly_wednesdays(start, today):
         u = url_builder(asof)
         print(f"[fetch] {asof} -> {u}")
@@ -94,11 +147,38 @@ def update_weekly_summaries():
             print(f"[skip] {asof}: {e}")
             continue
         df = normalize_summary(df, asof)
-        append_csv(df, OUT_CSV)
+        append_csv(df, CSV_PATH)
 
-    # 4) Dedupe at the end (idempotent)
-    dedupe_csv_inplace(OUT_CSV, keys=("as_of_date",))
-    print(f"Update complete. File: {OUT_CSV.resolve()}")
+    # Keep CSV tidy
+    dedupe_csv_inplace(CSV_PATH, keys=("as_of_date",))
+    print(f"[ok] CSV updated: {CSV_PATH.resolve()}")
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Parquet refresher
+# ──────────────────────────────────────────────────────────────────────────────
+def _pick_parquet_engine():
+    """Choose whichever Parquet engine is installed (pyarrow or fastparquet)."""
+    for eng in ("pyarrow", "fastparquet"):
+        try:
+            __import__(eng)
+            return eng
+        except ImportError:
+            pass
+    return None
+
+def refresh_parquet():
+    engine = _pick_parquet_engine()
+    if engine is None:
+        print("[warn] pyarrow/fastparquet not installed; skipping Parquet refresh.")
+        print("       Install with: pip install pyarrow   (or)   pip install fastparquet")
+        return
+    df = pd.read_csv(CSV_PATH, parse_dates=["as_of_date"])
+    df.to_parquet(PARQUET_PATH, index=False, engine=engine)
+    print(f"[ok] Parquet refreshed: {PARQUET_PATH.resolve()} (engine={engine})")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Entrypoint
+# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    update_weekly_summaries()
+    update_weekly_summaries()   # Step 1: update CSV
+    refresh_parquet()           # Step 2: regenerate Parquet
