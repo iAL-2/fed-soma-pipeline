@@ -119,7 +119,7 @@ def backfill_weekly_summaries(start: date, end: date):
 
 if __name__ == "__main__":
     # EXAMPLE: backfill 2024-01-01 to today
-    backfill_weekly_summaries(date(2025, 1, 1), date.today())
+    backfill_weekly_summaries(date(2007, 1, 1), date.today())
     print(f"Done. Output: {OUT_CSV.resolve()}")
 
 import pandas as pd
