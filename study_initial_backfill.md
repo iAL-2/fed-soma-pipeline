@@ -211,3 +211,111 @@ def append_csv(df: pd.DataFrame, path: Path):
     - Dont include the index
     - include headers only if it's a new file
     - use safe CSV quoting
+
+
+
+```python
+def dedupe_csv_inplace(path: Path, keys=("as_of_date",)):
+    """Load, drop duplicates by keys, and overwrite."""
+    df = pd.read_csv(path)
+    df = df.drop_duplicates(subset=[k for k in keys if k in df.columns])
+    df.to_csv(path, index=False)
+```
+# knowns 
+- the dataframe is loaded with read_csv() to the path the csv file we appended to is at. This loads the dataframe in this function and is assigned to a variable to transform
+- .drop_duplicates() looks to be a pandas method for...dropping duplicates. k for k in keys if k in df.columns is a generator expression that returns k and populates the list. (its actually a list comprehension because its inside brackets)
+- df.to_csv() is the panda method from earlier, except this time we skip header and quoting keyword arguments because the data should be already cleaned up. We give back the index=False because since it was read by pandas it probably got index numbers again.
+
+# unknown
+- the core funciton .drop_duplicates() needs to be properly explained. what is the keyword subset= accepting? and how does the logic work?
+- i think everything else is not too complicated to understand
+
+# answers
+- .drop_duplicates is indeed a pandas method to remove duplicate rows. How it works is it will compare values in the specified columns and keeps the first occurence of each unique combination
+- subset argument takes a list of column names to check for duplicates. since keys is "as_of_date", this comprehension ensures only keys that actually exist in the df columns is checked
+- if "as_of_date" was missing, it wouldnt crash but it would create an empty list aned skip deduplication
+- because path is the same both when importing and writing, this function overwrites and replaces the old file with the deduplicated one, hence the name "inplace"
+
+# summary
+- loads the csv into a dataframe, remove duplicate rows based on key columns "as_of_date", then save the cleaned data back into the same file, making sure not write the index numbers
+
+
+```python
+def backfill_weekly_summaries(start: date, end: date):
+    """
+    Core routine:
+    - For each weekly as-of date, fetch summary CSV
+    - Normalize, append
+    - Skip dates that 404/empty with a console note
+    """
+    for asof in weekly_dates(start, end, weekday=2):
+        u = url_builder(asof)
+        print(f"[fetch] {asof} -> {u}")
+        try:
+            df = fetch_csv_df(u)
+        except Exception as e:
+            print(f"[skip] {asof}: {e}")
+            continue
+        df = normalize_summary(df, asof)
+        append_csv(df, OUT_CSV)
+    # Deduplicate once at the end (safe even if fetched unique rows):
+    dedupe_csv_inplace(OUT_CSV, keys=("as_of_date",))
+```
+
+# known
+- main function. accepts start and end arguments, in date format
+- for step is an iteration loop that loops through weekly_dates, which is designed to grab the wednesdays as defined earlier
+- calls url_builder, which is waiting to accept the date argument
+- uses a try/except to attempt to fetch_csv_df(u). if it doesn't work, skip, print the date as well as the error code raised for that date
+- normalizes the dataframe with normalize_summary, defined earlier
+- append_csv() adds header if the header doesn't exist
+- finally dedupes
+- everything should be known here since we literally walked through everything
+- since it's inside of a for loop, it will iterate through every single date within the range specified
+
+# unknown
+- i think everything here makes sense?
+
+
+
+```python
+if __name__ == "__main__":
+    # EXAMPLE: backfill 2024-01-01 to today
+    backfill_weekly_summaries(date(2007, 1, 1), date.today())
+    print(f"Done. Output: {OUT_CSV.resolve()}")
+
+import pandas as pd
+
+path = "data/soma_summary_weekly.csv"
+
+df = pd.read_csv(path, parse_dates=["as_of_date"])
+df = df.sort_values("as_of_date")        # put earliest first
+df = df.drop_duplicates(subset=["as_of_date"])  # remove dup weeks if any
+df.to_csv(path, index=False)
+
+print(f"Cleaned and sorted: {len(df)} rows saved back to {path}")
+```
+
+# known
+- uses the __name__ == "__main__" to make sure it only runs if it is in the main branch. this prevents it from running when imported 
+- backfill_weekly_summaries() is called here, and here is where the initial date is decided. perhaps it could be cleaned up and be assigned a variable, and all levers can be put in a separate section for cleanliness. date.today() just grabs today's date using python
+- uses an f'string to print to terminal for the user to see
+- since we imported path from pathlib we can call .csv files hidden in data/ folders
+- theres an extra cleaning up section. the csv file is read into pandas, and parse and collect all of the data from as_of_date column. sort them, and since it's date format, it will be earliest first. drop the duplicates(this part should be redundant but is an extra check i guess). finally rewrite it back to csv. going from csv to df to csv always requires index=False if you want to maintain no index numbers. 
+- finally another f'string that tells the user the data has been sorted
+
+# unknown
+- none
+
+
+# conceptual overview 
+
+| Layer           | Function                    | Role                           |
+| --------------- | --------------------------- | ------------------------------ |
+| Date generation | `weekly_dates`              | Produce Wednesdays             |
+| Fetching        | `fetch_csv_df`              | Get data from URL              |
+| Cleaning        | `normalize_summary`         | Standardize columns + add date |
+| Storage         | `append_csv`                | Append to file                 |
+| Hygiene         | `dedupe_csv_inplace`        | Remove duplicates              |
+| Coordination    | `backfill_weekly_summaries` | Orchestrate whole flow         |
+| Entrypoint      | `if __name__ == "__main__"` | Execute for range + final sort |
