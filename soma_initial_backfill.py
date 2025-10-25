@@ -87,7 +87,7 @@ def normalize_summary(df: pd.DataFrame, asof: date) -> pd.DataFrame:
     return df
 
 def append_csv(df: pd.DataFrame, path: Path):
-    """Append to CSV (write header if file doesn’t exist)."""
+    """Append to CSV (write header if file doesn't exist)."""
     header = not path.exists()
     df.to_csv(path, mode="a", index=False, header=header, quoting=csv.QUOTE_MINIMAL)
 

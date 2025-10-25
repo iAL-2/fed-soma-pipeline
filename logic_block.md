@@ -19,9 +19,17 @@
 - Automatically updates without having to regenerate the entire dataset, as the dataset is large
 - When extracting dataset, must account for holidays as well as days where the market isn't open
 
+**Intermediates**
+- raw weekly CSV(s) from NY Fed
+- csv, longform, and parquet forms
+- final html dashboard: `data/soma_dashboard.html`
+
 **Rules (IF/THEN)**  
 - [Decision logic in plain IF/THEN statements.]  
-- 
+- IF no new weeks, THEN `soma_update_and_parquet_annotated.py` prints “No new weeks” and exits.
+- IF schema mismatch on read, THEN fail fast (don’t write corrupted outputs).
+- IF ZOOM_YEARS or ANCHOR_DATE change, THEN charts recompute but raw stays untouched.
+
 **Flow**  
 1. [Step 1]  
 2. [Step 2]  
