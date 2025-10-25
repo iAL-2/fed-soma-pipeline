@@ -3,6 +3,8 @@
 End-to-end pipeline for working with the Federal Reserve’s **System Open Market Account (SOMA)** data.  
 This project downloads weekly SOMA summaries, validates them, stores them as CSV/Parquet, and builds an interactive Plotly dashboard.
 
+This is an AI powered project that I am using to learn from.
+
 ---
 
 ## Features
