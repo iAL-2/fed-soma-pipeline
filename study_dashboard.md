@@ -370,3 +370,268 @@ def fig_weekly_change(df: pd.DataFrame) -> go.Figure:
 - sort_index → chronological order.
 - diff() → week-over-week delta.
 - rolling(...).mean() → smooth out short-term noise.
+
+```python
+def fig_cumulative(df: pd.DataFrame) -> go.Figure:
+    """
+    Chart 2: Cumulative change since the anchor.
+    - Pick the first date at/after ANCHOR_DATE.
+    - Subtract the starting value from every point to show change since that start.
+    """
+    s = df.set_index("as_of_date")["total"].sort_index()
+    s = s[s.index >= ANCHOR_DATE] if (s.index >= ANCHOR_DATE).any() else s
+    anchor_date = s.index.min()            # actual first date used as baseline
+    cum = s - s.iloc[0]                    # value minus the starting value
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=cum.index, y=cum.values, mode="lines", name="Cumulative Δ",
+        hovertemplate="%{x|%Y-%m-%d}<br>Δ since anchor: $%{y:,.0f}<extra></extra>"
+    ))
+    fig.add_hline(y=0, line_width=1, line_color="gray")
+
+    dollars_axis_layout(fig, trillions=False)
+    add_ranges(fig)
+
+    xs = cum.index
+    if len(xs):
+        qt_annotation(fig, anchor_date, f"Anchor: {anchor_date.date()}",
+                      x_min=xs.min().to_pydatetime(), x_max=xs.max().to_pydatetime())
+
+    fig.update_layout(
+        title=f"Cumulative Change Since {anchor_date.date()}",
+        legend_title=None, margin=dict(l=40, r=20, t=60, b=40), hovermode="x unified",
+    )
+    fig.update_xaxes(title="")
+    fig.update_yaxes(title="Δ vs anchor (USD)")
+    return fig
+```
+
+# known
+- s = df.set_index("as_of_date")["total"].sort_index()
+    - same pattern as earlier, import date as index, grab the 'total' column, then sort to make sure dates are in order
+- s = s[s.index >= ANCHOR_DATE] if (s.index >= ANCHOR_DATE).any() else s
+    - if there are dates later than this anchor date, then change the dataframe to those new anchor dates in range, otherwise don't modify it
+- anchor_date = s.index.min()
+    - anchor date variable is set to the earliest date of the index
+- plotly frontend 
+- dollar_axis_layout and add_ranges used to clean up the charts
+
+# unknown
+- cum = s - s.iloc[0]
+    - what is .iloc
+
+# answers
+- .iloc is a panda selection method for selecting rows/columns by 0-based position, not by label
+- .iloc[0] is the first element of series s
+- if s were a dataframe, df.iloc[0] is the first row, df.iloc[:, 0] is the first column
+
+
+```python
+def fig_composition_levels_last2y(df: pd.DataFrame) -> go.Figure:
+    """
+    Chart 3: Composition by category — levels (stacked areas) for last N years.
+    - We drop 'as_of_date' and 'total' to get component columns (e.g., mbs, tips).
+    - Stacked areas show how each category contributes to the total over time.
+    """
+    parts = [c for c in df.columns if c not in ("as_of_date", "total")]
+    if not parts:
+        return go.Figure()  # nothing to plot if no components
+    sub = last_n_years(df[["as_of_date"] + parts], ZOOM_YEARS).set_index("as_of_date")
+
+    fig = go.Figure()
+    for c in parts:
+        fig.add_trace(go.Scatter(
+            x=sub.index, y=sub[c], name=c.replace("_", " ").title(),
+            stackgroup="one", mode="lines",
+            hovertemplate="%{x|%Y-%m-%d}<br>" + c + ": $%{y:,.0f}<extra></extra>"
+        ))
+    dollars_axis_layout(fig, trillions=False)
+    add_ranges(fig)
+    fig.update_layout(
+        title=f"Composition by Category — Levels (Last {ZOOM_YEARS} Years)",
+        legend_title=None, margin=dict(l=40, r=20, t=60, b=40), hovermode="x unified",
+    )
+    fig.update_xaxes(title="")
+    fig.update_yaxes(title="Amount (USD)")
+    return fig
+```
+# known
+-  parts = [c for c in df.columns if c not in ("as_of_date", "total")]
+    - selects every column name excluding total and asofdate, then assign it to parts variable
+- returns if parts is empty
+- get a slice using the as of date and parts, essentially only dropping total, and set index asofdate
+
+
+```python
+def fig_composition_share_last2y(df: pd.DataFrame) -> go.Figure:
+    """
+    Chart 4: Composition as % shares (stacked to 100%) for last N years.
+    - Divide each component by 'total' to get its share.
+    - Replace division-by-zero cases with 0.
+    """
+    parts = [c for c in df.columns if c not in ("as_of_date", "total")]
+    if not parts:
+        return go.Figure()
+    sub = last_n_years(df[["as_of_date", "total"] + parts], ZOOM_YEARS).copy()
+    sub["total"] = sub["total"].replace(0, pd.NA)  # avoid divide-by-zero
+    for c in parts:
+        sub[c] = (sub[c] / sub["total"]).fillna(0.0)
+
+    fig = go.Figure()
+    for c in parts:
+        fig.add_trace(go.Scatter(
+            x=sub["as_of_date"], y=sub[c], name=c.replace("_", " ").title(),
+            stackgroup="one", mode="lines",
+            hovertemplate="%{x|%Y-%m-%d}<br>" + c + ": %{y:.1%}<extra></extra>"
+        ))
+    fig.update_yaxes(tickformat=".0%")
+    add_ranges(fig)
+    fig.update_layout(
+        title=f"Composition Share by Category (Last {ZOOM_YEARS} Years)",
+        legend_title=None, margin=dict(l=40, r=20, t=60, b=40), hovermode="x unified",
+    )
+    fig.update_xaxes(title="")
+    fig.update_yaxes(title="Share of Total")
+    return fig
+```
+
+# known
+- same parts pattern as earlier, get all column names except asofdate and total, if empty then return
+- uses helper last_n_years to get a sane date range, specifying the years to zoom in on, create a copy with .copy(), then assign it to sub
+- clean up the sub's total column by replacing any 0 with pd.NA
+- essentially go down each section, divide it by the 'total', and have guardrails to prevent dividing by zero
+
+# unknown
+- why bother with a sub copy? is the whole point to allow division without dividing by zero without modifying the original?
+
+# answer
+- why .copy()?
+    - doesn't mutate the original. since we are modifying the data to allow for division cleanly, its better to do it on a copy
+    - .copy() ensures sub is an independent object with it's own memory, avoiding view errors or other problems
+    - future code can reuse df unchanged
+
+
+```python
+def fig_total_last2y(df: pd.DataFrame) -> go.Figure:
+    """
+    Chart 5: Total holdings line over the last N years.
+    - Simple line chart of 'total' with the QT anchor marked (if in range).
+    """
+    sub = last_n_years(df[["as_of_date", "total"]], ZOOM_YEARS)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sub["as_of_date"], y=sub["total"], mode="lines", name="Total",
+        hovertemplate="%{x|%Y-%m-%d}<br>Total: $%{y:,.0f}<extra></extra>"
+    ))
+    dollars_axis_layout(fig, trillions=False)
+    add_ranges(fig)
+
+    xs = sub["as_of_date"]
+    if len(xs):
+        qt_annotation(fig, ANCHOR_DATE, "QT start",
+                      x_min=xs.min().to_pydatetime(), x_max=xs.max().to_pydatetime())
+
+    fig.update_layout(
+        title=f"SOMA Total Holdings (Last {ZOOM_YEARS} Years)",
+        legend_title=None, margin=dict(l=40, r=20, t=60, b=40), hovermode="x unified",
+    )
+    fig.update_xaxes(title="")
+    fig.update_yaxes(title="Total (USD)")
+    return fig
+```
+
+# known
+- no special calculations, take 'total' and directly plot it, taking the number of years specified in settings
+- plotly frontend
+
+
+```python
+# ====== Main (puts it all together into one HTML file) ======
+
+def main():
+    """
+    - Ensure the data folder exists
+    - Load the CSV
+    - Build all figures
+    - Assemble a small HTML page with a header + timestamp + all figures
+    - Write the HTML to disk
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    wide = load_wide()
+
+    # Build each chart (functions above return Plotly Figures)
+    f1 = fig_weekly_change(wide)
+    f2 = fig_cumulative(wide)
+    f3 = fig_composition_levels_last2y(wide)
+    f4 = fig_composition_share_last2y(wide)
+    f5 = fig_total_last2y(wide)
+
+    # Create the page header (once). We load Plotly JS from a CDN so the file stays small.
+    last_updated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    head = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fed SOMA Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; }
+    h1 { margin: 0 0 4px 6px; font-weight: 650; }
+    .sub { color: #666; margin: 0 0 18px 6px; }
+    section { border: 1px solid #eee; border-radius: 12px; padding: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Fed SOMA Dashboard</h1>
+  <div class="sub">Last updated: """ + last_updated + """</div>
+"""
+
+    # Convert figures to HTML sections and glue them together
+    body = (
+        fig_to_section(f1, "Net Weekly Change (WoW) + Rolling Trend") +
+        fig_to_section(f2, f"Cumulative Change Since {max(ANCHOR_DATE, wide['as_of_date'].min()).date()}") +
+        fig_to_section(f3, f"Composition by Category — Levels (Last {ZOOM_YEARS} Years)") +
+        fig_to_section(f4, f"Composition Share (Last {ZOOM_YEARS} Years)") +
+        fig_to_section(f5, f"Total Holdings (Last {ZOOM_YEARS} Years)")
+    )
+
+    # Wrap up into a full HTML document and write it to disk
+    html = head + body + "\n</body>\n</html>"
+    OUT_HTML.write_text(html, encoding="utf-8")
+    print(f"Wrote {OUT_HTML.resolve()} — open it in your browser.")
+
+# Run main() only when this file is executed directly (not when imported)
+if __name__ == "__main__":
+    main()
+```
+# known
+- first check if the data folder exists with .mkrdir(), which should be a pathlib method
+- import the initial data that will be used for all the charts, which is the wide form of the cleaned up csv. assign it to variable 'wide'
+- finally, build all the charts. we have 5 different functions, each returning a different chart. none of them should modify 'wide'. then assign them to variables to store them in memory
+- start creating the dashboard. this is mostly frotend stuff, but we make sure to stitch together the different charts with titles for them as well using f strings
+- output it into html with pathlib's OUT_HTML path and write_text(), which should be a python method
+- finally use the __name__ == "__main__" pattern to ensure this only runs when executed, not imported
+
+# unknown
+- fine details of the front end stuff, but i don't think its necessary to learn for now. can rely on AI scaffolding, need to be able to read the main logic. but let me know if i missed anything crucial
+
+# Extra logical details by chatgpt
+- Plotly JS loading
+    - The header pulls Plotly from a CDN
+        - <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+            - This keeps your HTML small, but requires internet to render charts. Offline viewing would need embedding Plotly or using include_plotlyjs="cdn"/"directory" via whatever your fig_to_section uses. Version pin (2.35.2) also ensures consistent rendering.
+- fig_to_section(...) contract (implied but important):
+    - For this to work, fig_to_section must serialize figures with include_plotlyjs=False (since JS is already in <head>), and wrap each figure in a <section> with a title. If it accidentally includes Plotly again per figure, you’ll bloat the page and risk conflicts.
+- Timezone & timestamp stamp:
+    - last_updated = datetime.now().strftime("%Y-%m-%d %H:%M") uses local machine time (naive). That’s fine; just know it’s not UTC and has no TZ marker. If you ever compare runs across machines, that’s why times may differ.
+- Ordering & narrative:
+    - The body concatenation sets the reading flow: WoW → Cumulative → Composition (levels, shares) → Total. That’s a sensible macro→micro story and matches how an analyst would scan.
+- Assumptions:
+    - ZOOM_YEARS, ANCHOR_DATE, OUT_HTML, DATA_DIR, fig_to_section, add_ranges, dollars_axis_layout, last_n_years, qt_annotation must be defined/imported in the same module or earlier.
+    - wide['as_of_date'] must be datetime-typed (or at least comparable) for the helper functions and title logic to behave.
+- Failure modes worth knowing (not coding, just behavior):
+    - If load_wide() returns empty, charts will render empty shells; guards like len(xs) in the functions prevent annotation errors.
+    - If the machine is offline, the HTML opens but charts won’t render because the Plotly CDN script can’t load.
