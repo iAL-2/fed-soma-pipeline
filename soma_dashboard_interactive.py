@@ -1,34 +1,3 @@
-# =============================================================================
-# soma_dashboard_interactive.py  —  BEGINNER-ANNOTATED VERSION
-# -----------------------------------------------------------------------------
-# Purpose: Build ONE self-contained HTML dashboard (using Plotly) from your
-#          weekly SOMA summary CSV and save it to data/soma_dashboard.html.
-#
-# Input  : data/soma_summary_weekly.csv  (columns: as_of_date, total, mbs, tips, ...)
-# Output : data/soma_dashboard.html      (open this file in a browser)
-#
-# What you get (charts):
-# 1) Weekly change bars + a smoother rolling-average line
-# 2) Cumulative change since an anchor date (e.g., QT start)
-# 3) Composition by category (stacked areas) over the last N years
-# 4) Composition as % shares (stacked to 100%) over the last N years
-# 5) Total holdings over the last N years
-#
-# Extra polish:
-# - Date range slider + quick range buttons (6M, 1Y, 2Y, All)
-# - Dollar formatting on the y-axis
-# - "Last updated" timestamp on the page
-# - A vertical line + label for a chosen anchor date (e.g., QT start)
-#
-# How to run:
-#   python soma_dashboard_interactive.py
-#
-# Notes for beginners:
-# - Plotly "Figure" = a chart object. We add traces (bars/lines) to it.
-# - We wrap multiple figures into one HTML page so you only open one file.
-# - If CSV has other categories, they’ll automatically show up in composition charts.
-# =============================================================================
-
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -43,10 +12,7 @@ OUT_HTML = DATA_DIR / "soma_dashboard.html"           # output HTML dashboard
 ANCHOR_DATE = pd.Timestamp("2017-06-01")  # baseline date for "cumulative" and vertical line
 ROLL_W = 4                                # rolling window (in weeks) to smooth weekly change
 ZOOM_YEARS = 5                            # only show the most recent N years in some charts
-# ------------------------------------------------------
 
-
-# ====== Helpers (small utility functions) ======
 
 def load_wide() -> pd.DataFrame:
     """
@@ -56,7 +22,6 @@ def load_wide() -> pd.DataFrame:
     """
     df = pd.read_csv(WIDE_CSV, parse_dates=["as_of_date"]).sort_values("as_of_date")
     value_cols = [c for c in df.columns if c != "as_of_date"]
-    # Convert every value column to numeric; if something is not numeric, make it 0 instead of NaN
     df[value_cols] = df[value_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
     if "total" not in df.columns:
         raise RuntimeError(f"'total' column not found. Columns: {df.columns.tolist()}")
@@ -120,7 +85,7 @@ def qt_annotation(fig: go.Figure, anchor, text="QT start", x_min=None, x_max=Non
     try:
         x = _to_py_dt(anchor)
     except Exception:
-        return  # if we can't parse the date, silently skip
+        return
 
     if x_min is not None and x < _to_py_dt(x_min):
         return
@@ -129,7 +94,7 @@ def qt_annotation(fig: go.Figure, anchor, text="QT start", x_min=None, x_max=Non
 
     fig.add_vline(x=x, line_width=1, line_dash="dot", line_color="gray")
     fig.add_annotation(
-        x=x, y=1.0, xref="x", yref="paper",      # yref="paper" pins it to top of the plotting area
+        x=x, y=1.0, xref="x", yref="paper",
         text=text, showarrow=False,
         xanchor="left", yanchor="bottom",
         bgcolor="rgba(255,255,255,0.6)", bordercolor="gray", borderwidth=1
@@ -323,14 +288,12 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     wide = load_wide()
 
-    # Build each chart (functions above return Plotly Figures)
     f1 = fig_weekly_change(wide)
     f2 = fig_cumulative(wide)
     f3 = fig_composition_levels_last2y(wide)
     f4 = fig_composition_share_last2y(wide)
     f5 = fig_total_last2y(wide)
 
-    # Create the page header (once). We load Plotly JS from a CDN so the file stays small.
     last_updated = datetime.now().strftime("%Y-%m-%d %H:%M")
     head = """
 <!doctype html>
