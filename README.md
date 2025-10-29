@@ -63,6 +63,9 @@ pip install -r requirements.txt
    data/soma_dashboard.html
    ```
 
+# Offline/Online
+- dashboard HTML needs a network at view-time for Plotly CDN.
+
 ---
 
 ## Config
